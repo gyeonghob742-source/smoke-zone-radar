@@ -1,0 +1,16 @@
+# Netlify 배포 설정
+# 저장소 전체가 아니라 사이트에 필요한 파일만 dist/로 모아서 배포한다.
+# (tools/, server.rb, README 같은 개발용 파일은 사이트에 올라가지 않음)
+[build]
+  command = "rm -rf dist && mkdir -p dist && cp -r index.html sw.js manifest.webmanifest assets data dist/"
+  publish = "dist"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/data/*"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

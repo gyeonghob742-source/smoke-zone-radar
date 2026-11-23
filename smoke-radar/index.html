@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="description" content="서울에서 처음 가는 동네, 반경 100m 안 흡연구역을 알림으로 알려주고 학교·어린이집 근처 금연구역은 미리 경고해주는 웹앱">
+  <title>스모크 존 레이더 - 서울 흡연구역 알림 · 금연구역 경고</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/img/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/img/icon-192.png">
+  <link rel="stylesheet" href="assets/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="assets/css/style.css?v=2">
+</head>
+<body>
+<div id="app">
+
+  <!-- 1. 상단 헤더 -->
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-icon" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 10 10"/><path d="M12 6a6 6 0 0 1 6 6"/><circle cx="12" cy="12" r="2"/></svg>
+      </div>
+      <div class="brand-text">
+        <h1>스모크 존 레이더</h1>
+        <div class="brand-badges">
+          <span class="live-badge"><span class="pulse-dot"></span><span id="radar-badge">100m · 3분마다</span></span>
+          <span id="data-badge" class="data-badge">서울 0곳</span>
+        </div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="btn-sound" class="hbtn on" aria-pressed="true" title="알림음 켜기/끄기">🔊<span class="hbtn-label">소리</span></button>
+      <button id="btn-notif" class="hbtn" title="휴대폰 알림 받기">🔔<span class="hbtn-label">알림</span></button>
+      <button id="btn-sim" class="hbtn sim" aria-pressed="false" title="가상 걷기 시뮬레이터">🚶<span class="hbtn-label">시뮬</span></button>
+    </div>
+  </header>
+
+  <!-- 2. 지도 위 알림 카드들 -->
+  <div class="toast-stack" aria-live="polite">
+    <div id="loc-banner" class="loc-banner" hidden>
+      <div id="loc-text">📍 내 위치를 찾는 중이에요…</div>
+      <div class="quick-pos">
+        <span class="muted">빠른 선택</span>
+        <button data-lat="37.4979" data-lng="127.0276">강남역</button>
+        <button data-lat="37.5445" data-lng="127.0560">성수역</button>
+        <button data-lat="37.5216" data-lng="126.9242">여의도</button>
+        <button data-lat="37.5552" data-lng="126.9368">신촌</button>
+        <button data-lat="37.5135" data-lng="127.1040">잠실</button>
+      </div>
+      <div class="muted small">지도를 길게 누르면 그 위치를 내 위치로 정할 수 있어요.</div>
+    </div>
+
+    <div id="nosmoke-card" class="card nosmoke-card" role="alert" hidden>
+      <div class="card-top">
+        <span class="badge red">🚭 금연구역 주의</span>
+        <button class="card-close" data-close="nosmoke" aria-label="금연구역 경고 닫기">✕</button>
+      </div>
+      <div id="nosmoke-title" class="card-title">○○초등학교 근처예요</div>
+      <div id="nosmoke-desc" class="card-desc">학교 경계 30m 이내는 금연구역 · 위반 시 과태료 최대 10만원</div>
+      <div class="card-foot">위치 기반 추정이에요. 현장 금연 표지판이 우선이에요.</div>
+    </div>
+
+    <div id="smoke-card" class="card smoke-card" role="status" hidden>
+      <div class="card-top">
+        <span id="smoke-badge" class="badge green">🚬 흡연구역 감지</span>
+        <button class="card-close" data-close="smoke" aria-label="흡연구역 알림 닫기">✕</button>
+      </div>
+      <div id="smoke-title" class="card-title"></div>
+      <div id="smoke-desc" class="card-desc"></div>
+      <div class="card-actions">
+        <a id="smoke-kakao" class="btn kakao" target="_blank" rel="noopener">카카오 길찾기</a>
+        <button id="smoke-show" class="btn ghost">지도에서 보기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. 지도 -->
+  <main id="map" aria-label="흡연구역 지도"></main>
+
+  <!-- 지도 버튼 -->
+  <div class="map-fabs">
+    <button id="btn-locate" class="fab" title="내 위치로" aria-label="내 위치로">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>
+    </button>
+    <button id="btn-settings" class="fab" title="설정" aria-label="설정">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+  </div>
+
+  <div id="map-legend" class="map-legend">
+    <span><i class="lg dot green"></i>흡연구역</span>
+    <span><i class="lg dot blue"></i>건물 흡연실</span>
+    <span id="legend-nosmoke"><i class="lg ring red"></i>금연구역(대략)</span>
+    <span id="legend-zoom" class="muted" hidden>확대하면 금연구역이 보여요</span>
+  </div>
+
+  <div id="sim-bar" class="sim-bar" hidden>
+    <span>🚶 시뮬레이션 중 · 지도를 탭하면 그쪽으로 걸어가요</span>
+    <label class="sim-speed">속도
+      <select id="sim-speed">
+        <option value="1">걷기</option>
+        <option value="4" selected>×4</option>
+        <option value="10">×10</option>
+      </select>
+    </label>
+    <button id="sim-stop" class="btn small">끝내기</button>
+  </div>
+
+  <!-- 4. 바텀시트 -->
+  <section id="sheet" class="sheet" aria-label="주변 흡연구역 목록">
+    <button id="sheet-handle" class="sheet-handle" aria-label="목록 펼치기/접기"><span></span></button>
+    <div class="sheet-head">
+      <div>
+        <h2>가장 가까운 흡연구역 <small id="list-count"></small></h2>
+        <div id="status-line" class="status-line">📍 위치 확인 중</div>
+      </div>
+      <button id="sheet-toggle" class="round-btn" aria-label="목록 펼치기/접기">▴</button>
+    </div>
+
+    <div class="sheet-body">
+      <div id="summary-box" class="summary-box" hidden></div>
+
+      <div class="search">
+        <input id="search" type="search" placeholder="구, 건물명, 역 이름 검색 (예: 성수역, 센터플레이스)" aria-label="흡연구역 검색">
+      </div>
+      <div id="gu-chips" class="chips" role="tablist" aria-label="구 선택"></div>
+      <div class="cat-filter" role="group" aria-label="보여줄 흡연구역 종류">
+        <label><input type="checkbox" data-cat="out" checked> 실외·부스</label>
+        <label><input type="checkbox" data-cat="bld" checked> 건물 흡연실</label>
+        <label><input type="checkbox" data-cat="biz"> 업소(이용객 전용)</label>
+      </div>
+
+      <ul id="spot-list" class="spot-list"></ul>
+      <button id="more-btn" class="btn ghost full" hidden>더 보기</button>
+
+      <details class="history">
+        <summary>🕘 알림 기록 <span id="history-count" class="muted"></span></summary>
+        <ul id="history-list"></ul>
+        <button id="history-clear" class="btn small ghost">기록 지우기</button>
+      </details>
+
+      <details class="about">
+        <summary>ℹ️ 데이터와 주의사항</summary>
+        <ul>
+          <li>흡연구역: 서울시 자치구 흡연시설 공공데이터(이름·주소). <b id="verify-note">좌표는 검증 전이라 실제 위치와 다를 수 있어요.</b></li>
+          <li>금연구역: 공공데이터포털 전국초중등학교위치표준데이터, 전국어린이보호구역표준데이터(유치원·어린이집).</li>
+          <li>학교·어린이집·유치원 경계 30m 이내는 금연구역이고 위반 시 과태료 최대 10만원(국민건강증진법). 지도의 빨간 원은 시설 위치를 기준으로 한 <b>대략적인 범위</b>예요.</li>
+          <li>버스정류소·지하철 출입구·공원 등 구청 지정 금연구역은 아직 포함되지 않았어요. 현장 표지판이 우선이에요.</li>
+          <li>위치 정보는 이 기기 안에서만 쓰고 서버로 보내지 않아요.</li>
+        </ul>
+      </details>
+    </div>
+  </section>
+
+  <!-- 5. 설정 -->
+  <div id="settings" class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2 id="settings-title">알림 설정</h2>
+        <button class="card-close" data-close="settings" aria-label="설정 닫기">✕</button>
+      </div>
+
+      <div class="set-group">
+        <div class="set-label">알림 반경</div>
+        <div class="seg" data-key="radius">
+          <button data-v="50">50m</button><button data-v="100">100m</button><button data-v="200">200m</button><button data-v="300">300m</button>
+        </div>
+      </div>
+
+      <div class="set-group">
+        <div class="set-label">알림 방식</div>
+        <div class="seg" data-key="mode">
+          <button data-v="entry">진입 알림</button><button data-v="summary">요약 알림</button>
+        </div>
+        <div class="set-help" id="mode-help"></div>
+      </div>
+
+      <div class="set-group">
+        <div class="set-label">다시 알림 간격</div>
+        <div class="seg" data-key="interval">
+          <button data-v="0">한 번만</button><button data-v="1">1분</button><button data-v="3">3분</button><button data-v="5">5분</button><button data-v="10">10분</button>
+        </div>
+      </div>
+
+      <div class="set-group">
+        <label class="switch-row"><span>🚭 금연구역 경고 (학교·어린이집 근처)</span><input type="checkbox" id="set-nosmoke"></label>
+        <label class="switch-row"><span>🟥 지도에 금연구역 빨갛게 표시</span><input type="checkbox" id="set-nosmoke-map"></label>
+        <label class="switch-row"><span>🚗 빠르게 이동 중이면 알림 멈춤 (시속 15km 이상)</span><input type="checkbox" id="set-speed"></label>
+      </div>
+
+      <div class="set-group">
+        <label class="switch-row"><span>🌙 방해 금지 시간</span><input type="checkbox" id="set-quiet"></label>
+        <div class="quiet-times">
+          <input type="time" id="quiet-from" aria-label="방해 금지 시작"> ~ <input type="time" id="quiet-to" aria-label="방해 금지 끝">
+        </div>
+      </div>
+
+      <div class="set-group">
+        <div class="set-label">🏠 자주 가는 곳 (낯선 곳 모드)</div>
+        <div class="set-help">집·학교·회사처럼 자주 가는 곳을 등록하면 그 주변 300m에서는 흡연구역 알림을 쉬어요. 금연구역 경고는 계속 와요.</div>
+        <ul id="familiar-list" class="familiar-list"></ul>
+        <div class="familiar-add">
+          <input id="familiar-name" type="text" placeholder="이름 (예: 집)" maxlength="12">
+          <button id="familiar-add" class="btn small">지금 위치 등록</button>
+        </div>
+      </div>
+
+      <button id="settings-done" class="btn primary full">완료</button>
+    </div>
+  </div>
+
+</div>
+
+<script src="assets/vendor/leaflet/leaflet.js"></script>
+<script src="data/smoking-areas.js?v=2"></script>
+<script src="data/no-smoking-points.js?v=2"></script>
+<script src="assets/js/app.js?v=2"></script>
+</body>
+</html>
